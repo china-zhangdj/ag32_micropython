@@ -1,0 +1,266 @@
+module user_ip (
+  input              sys_clock,
+  input              bus_clock,
+  input              resetn,
+  input              stop,
+  input       [1:0]  mem_ahb_htrans,
+  input              mem_ahb_hready,
+  input              mem_ahb_hwrite,
+  input       [31:0] mem_ahb_haddr,
+  input       [2:0]  mem_ahb_hsize,
+  input       [2:0]  mem_ahb_hburst,
+  input       [31:0] mem_ahb_hwdata,
+  output tri1        mem_ahb_hreadyout,
+  output tri0        mem_ahb_hresp,
+  output tri0 [31:0] mem_ahb_hrdata,
+  output tri0        slave_ahb_hsel,
+  output tri1        slave_ahb_hready,
+  input              slave_ahb_hreadyout,
+  output tri0 [1:0]  slave_ahb_htrans,
+  output tri0 [2:0]  slave_ahb_hsize,
+  output tri0 [2:0]  slave_ahb_hburst,
+  output tri0        slave_ahb_hwrite,
+  output tri0 [31:0] slave_ahb_haddr,
+  output tri0 [31:0] slave_ahb_hwdata,
+  input              slave_ahb_hresp,
+  input       [31:0] slave_ahb_hrdata,
+  output tri0 [3:0]  ext_dma_DMACBREQ,
+  output tri0 [3:0]  ext_dma_DMACLBREQ,
+  output tri0 [3:0]  ext_dma_DMACSREQ,
+  output tri0 [3:0]  ext_dma_DMACLSREQ,
+  input       [3:0]  ext_dma_DMACCLR,
+  input       [3:0]  ext_dma_DMACTC,
+  output tri0 [3:0]  local_int,
+
+  output tri0        led_o,
+  output tri0 [3:0]  psfb_o
+);
+
+
+assign ext_dma_DMACLBREQ = 4'b0;
+assign ext_dma_DMACSREQ  = 4'b0;
+assign ext_dma_DMACLSREQ = 4'b0;
+
+/********************** APB ********************/
+parameter ADDR_BITS = 16;
+parameter DATA_BITS = 32;
+// ahb to apb : apb wires
+wire                 apb_psel;
+wire                 apb_penable;
+wire                 apb_pwrite;
+wire [ADDR_BITS-1:0] apb_paddr;
+wire [DATA_BITS-1:0] apb_pwdata;
+wire [3:0]           apb_pstrb;
+wire [2:0]           apb_pprot;
+wire                 apb_pready = 1'b1 ;
+wire                 apb_pslverr = 1'b0;
+wire [DATA_BITS-1:0] apb_prdata;
+
+// apb clock can defined by user
+assign apb_clock = bus_clock;
+
+ahb2apb #(ADDR_BITS, DATA_BITS) ahb2apb_inst(
+  .reset        (!resetn                     ),
+  .ahb_clock    (sys_clock                   ),
+  .ahb_hmastlock(1'b0                        ),
+  .ahb_htrans   (mem_ahb_htrans              ),
+  .ahb_hsel     (1'b1                        ),
+  .ahb_hready   (mem_ahb_hready              ),
+  .ahb_hwrite   (mem_ahb_hwrite              ),
+  .ahb_haddr    (mem_ahb_haddr[ADDR_BITS-1:0]),
+  .ahb_hsize    (mem_ahb_hsize               ),
+  .ahb_hburst   (mem_ahb_hburst              ),
+  .ahb_hprot    (4'b0011                     ),
+  .ahb_hwdata   (mem_ahb_hwdata              ),
+  .ahb_hrdata   (mem_ahb_hrdata              ),
+  .ahb_hreadyout(mem_ahb_hreadyout           ),
+  .ahb_hresp    (mem_ahb_hresp               ),
+  .apb_clock    (apb_clock                   ),
+  .apb_psel     (apb_psel                    ),
+  .apb_penable  (apb_penable                 ),
+  .apb_pwrite   (apb_pwrite                  ),
+  .apb_paddr    (apb_paddr                   ),
+  .apb_pwdata   (apb_pwdata                  ),
+  .apb_pstrb    (apb_pstrb                   ),
+  .apb_pprot    (apb_pprot                   ),
+  .apb_pready   (apb_pready                  ),
+  .apb_pslverr  (apb_pslverr                 ),
+  .apb_prdata   (apb_prdata                  )
+);
+/********************** APB ********************/
+
+parameter APB_ADC = 'd0;
+parameter APB_ADC_ERR =  'h0 ;
+parameter APB_ADC_EXP = 'h4 ;
+parameter APB_ADC_OUT = 'h8 ;
+parameter APB_ADC_DOUT = 'hc ;
+
+
+wire [3:0] apb_peri_addr ;
+wire [11:0] apb_reg_addr ;
+assign apb_peri_addr = apb_paddr[15:12] ;
+assign apb_reg_addr = apb_paddr[11:0] ;
+// mcu write apb 
+always @(posedge apb_clock or negedge resetn) begin  
+	if(!resetn) begin
+	end else begin
+		if (apb_psel && apb_penable && apb_pwrite)begin
+			case(apb_peri_addr) 
+        APB_ADC : begin
+          case(apb_reg_addr) 
+            APB_ADC_EXP : begin
+              exp <= apb_pwdata ;
+            end
+          endcase
+        end
+        
+			endcase
+		end
+	end
+end
+// mcu read apb
+reg [31:0] ardata_reg;			 		
+always @(posedge apb_clock or negedge resetn) begin  
+	if(!resetn) begin
+	end else begin
+		if (apb_psel && !apb_pwrite) begin
+        case(apb_peri_addr)
+          APB_ADC : begin
+            case(apb_reg_addr) 
+                APB_ADC_ERR : begin
+                  // ardata_reg <= (cic_dout >>> 'd30) ;
+                  ardata_reg <= 'd0 ;
+                  // ardata_reg <= out ;
+                end
+                 APB_ADC_OUT : begin
+                  // ardata_reg <= (cic_dout >>> 'd30) ;
+                  ardata_reg <= loop_out ;
+                  // ardata_reg <= out ;
+                end
+                APB_ADC_DOUT : begin
+                  // ardata_reg <= (cic_dout >>> 'd30) ;
+                  ardata_reg <= (cic_dout >>> 'd30) + 19073 ;
+                  // ardata_reg <= out ;
+                end
+            endcase
+          end
+        endcase
+		end
+	end
+end
+assign apb_prdata = ardata_reg;
+
+
+
+wire adc_clk ;
+utils_num_clock#(
+    .NUM_CLK ( 5 ) // 100MHz / 5 = 20MHz
+)u_utils_num_clock(
+    .clk_i  ( bus_clock  ),
+    .resetn ( resetn ),
+    .clk_o  ( adc_clk  )
+);
+
+
+
+wire [11:0] adc_data ;
+wire adc_eoc ;
+
+assign led_o = adc_eoc ;
+
+
+// DR = 1.538M SPS
+alta_adc adc_inst(
+.enb ('d0),     //0启动
+.sclk (adc_clk),       //CLK 
+.stop ('d0),       //0启动
+.insel(5'b1000),   //通道
+.db (adc_data ),      //数据
+.eoc (adc_eoc)      //结束后低电平
+);
+
+
+
+
+utils_dma u_utils_dma_adc(
+    .clk_i     ( bus_clock     ),
+    .resetn    ( resetn    ),
+    .valid_i   (cic_valid),
+    .accept_o  (),
+    .dma_clr_i (  ext_dma_DMACCLR[0] ),
+    .dma_req_o  ( ext_dma_DMACBREQ[0]  )
+);
+
+wire signed [12:0] din_signed;
+assign din_signed = $signed({1'b0, adc_data} - 12'd2048);
+
+
+
+wire cic_valid ;
+wire signed [45:0] cic_dout ;
+// DR = 15.38KHz
+cic_filter#(
+    .NIN         ( 12 ),
+    .N           ( 5 ),
+    .R           ( 100 )
+)u_cic_filter(
+    .clk_i       ( adc_clk       ),
+    .resetn      ( resetn      ),
+    .input_data  ( din_signed  ),
+    .input_valid ( !adc_eoc ),
+    .output_data ( cic_dout ),
+    .output_valid  ( cic_valid  )
+);
+
+wire [3:0]psfb_out ;
+assign psfb_o[0] = psfb_out[0] ;
+assign psfb_o[1] = psfb_out[1] ;
+assign psfb_o[2] = psfb_out[2] ;
+assign psfb_o[3] = psfb_out[3] ;
+
+
+
+
+localparam integer PSFB_T = 'd5_000 ;
+localparam integer PSFB_MAX_SHIFT = (PSFB_T >> 'd1) - 'd1 ;
+localparam integer LOOP_P_RSHIFT = 'd6 ;
+
+power_psfb#(
+    .T       ( PSFB_T ), // 100MHz / 5_000 = 20KHz ,shift max = 10_000
+    .RBITS   ( 16 )
+)u_power_psfb(
+    .clk_i   ( bus_clock   ),
+    .resetn  ( resetn  ),
+    .shift_i ( loop_out ),
+    .sw_qs_o  (  psfb_out )
+);
+
+
+wire clk_closeloop ;
+utils_num_clock#(
+    .NUM_CLK ( 'd100_000 ) // 100MHz / 100_000 = 1000 Hz
+)u_utils_num_clock_close_loop(
+    .clk_i  ( bus_clock  ),
+    .resetn ( resetn ),
+    .clk_o  ( clk_closeloop  )
+);
+
+
+reg signed [23:0] exp ;
+wire signed [23:0] loop_out ;
+ctrl_intergral#(
+    .IOBITS  ( 24 ),
+    .P_RSHIFT( LOOP_P_RSHIFT ),
+    .MAX_OUT(PSFB_MAX_SHIFT),
+    .MIN_OUT(0)
+)u_ctrl_intergral(
+    .clk_i   ( clk_closeloop   ),
+    .resetn  ( resetn  ),
+    .exp     ( exp     ),
+    .in      ( ((cic_dout >>> 'd30) + 19073) ),
+    .out     ( loop_out     )
+);
+
+
+
+endmodule
